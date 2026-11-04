@@ -206,6 +206,11 @@
               </div>
             </div>
 
+            <div class="feed-filter-group" id="feed-opt-filter-group" hidden>
+              <span class="feed-filter-label">Варіант</span>
+              <div class="feed-filters" id="feed-opt-filters"></div>
+            </div>
+
             <div class="feed-filter-group">
               <span class="feed-filter-label">Профіль</span>
               <div class="feed-filters" id="feed-profile-filters"></div>
@@ -344,6 +349,20 @@
         <div class="field" id="log-type-field">
           <span class="field-label" id="log-type-label">Тип</span>
           <div class="type-chips" id="log-types"></div>
+        </div>
+
+        <div class="field" id="log-options-field">
+          <div class="field-head">
+            <span class="field-label">Варіанти</span>
+            <button type="button" class="btn-link" id="log-options-edit-toggle" hidden>Редагувати</button>
+          </div>
+          <div class="option-chips" id="log-options"></div>
+          <div class="option-custom-form" id="log-option-custom-form" hidden>
+            <input type="text" class="input option-emoji-input" id="log-option-emoji" maxlength="4" value="✨" aria-label="Емодзі варіанту" placeholder="✨">
+            <input type="text" class="input option-label-input" id="log-option-label" maxlength="40" placeholder="Свій варіант (напр.: гостре)" autocomplete="off">
+            <button type="button" class="btn btn-primary btn-sm" id="log-option-add-save">Додати</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="log-option-add-cancel">Скасувати</button>
+          </div>
         </div>
 
         <div class="field" id="log-food-field">

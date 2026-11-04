@@ -1,5 +1,6 @@
 /**
  * Відділи (трекери) щоденних записів та загальна Стрічка (Supabase):
+ *  - Таблиця Supabase: categories(id uuid, name, emoji, color, created_by, created_at)
  *  - Таблиця Supabase: logs(id, profile_id, category, date, time, type, note, photo_url)
  *  - Bucket Storage: "photos" (публічний)
  *  - Стрічка: записи ВСІХ профілів з бази за обраний день, відсортовані за часом
@@ -9,34 +10,37 @@
 
   const PHOTO_MAX_SIDE = 1280;
   const PHOTO_QUALITY = 0.8;
-  const CATEGORIES_STORAGE_KEY = 'daily.customCategories';
 
-  const DEFAULT_CATEGORIES = [
+  const FOOD_TYPES = [
+    { id: 'breakfast', icon: '🌅', label: 'Сніданок' },
+    { id: 'lunch', icon: '🍲', label: 'Обід' },
+    { id: 'dinner', icon: '🌙', label: 'Вечеря' },
+    { id: 'snack', icon: '🍎', label: 'Перекус' },
+  ];
+
+  const TOILET_TYPES = [
+    { id: 'pee', icon: '💧', label: 'Мала' },
+    { id: 'poop', icon: '💩', label: 'Велика' },
+    { id: 'both', icon: '💧💩', label: 'Разом' },
+    { id: 'quick', icon: '⚡', label: 'Швидко' },
+  ];
+
+  const FALLBACK_CATEGORIES = [
     {
-      id: 'food',
-      title: 'Їжа',
-      icon: '🍽',
-      color: '#e5a95c',
-      builtin: true,
-      types: [
-        { id: 'breakfast', icon: '🌅', label: 'Сніданок' },
-        { id: 'lunch', icon: '🍲', label: 'Обід' },
-        { id: 'dinner', icon: '🌙', label: 'Вечеря' },
-        { id: 'snack', icon: '🍎', label: 'Перекус' },
-      ],
+      id: '2e5b8ad4-ee34-45a0-9014-10888a194244',
+      name: 'Їжа',
+      emoji: '🍽',
+      color: '#f5a524',
+      created_by: null,
+      created_at: null,
     },
     {
-      id: 'toilet',
-      title: 'Туалет',
-      icon: '💩',
-      color: '#6bc4a6',
-      builtin: true,
-      types: [
-        { id: 'pee', icon: '💧', label: 'Мала' },
-        { id: 'poop', icon: '💩', label: 'Велика' },
-        { id: 'both', icon: '💧💩', label: 'Разом' },
-        { id: 'quick', icon: '⚡', label: 'Швидко' },
-      ],
+      id: '8af83cbd-a8bb-4f39-a0f1-a14c4808c405',
+      name: 'Туалет',
+      emoji: '💩',
+      color: '#a16207',
+      created_by: null,
+      created_at: null,
     },
   ];
 
@@ -55,13 +59,16 @@
   const el = {};
 
   let profile = null;
+  let categoriesRows = []; // рядки з таблиці categories у Supabase
+  let categoryOptionsRows = []; // рядки з таблиці category_options у Supabase
   let categoriesMap = new Map(); // catId -> category object
   let allLogs = []; // усі записи всіх профілів із таблиці logs
   let profilesById = new Map(); // profile_id -> profile
-  let activeCategory = 'food';
+  let activeCategory = '';
   let selectedDate = ''; // 'YYYY-MM-DD' у трекері
   let feedDate = ''; // 'YYYY-MM-DD' у стрічці
   let feedCatFilter = 'all';
+  let feedOptFilter = 'all';
   let feedProfileFilter = 'all';
   let loadToken = 0;
   let isLoading = false;
@@ -71,6 +78,9 @@
   let draft = null;
   let previewUrl = null;
   let stream = null;
+  let optionsEditMode = false;
+  let longPressTimer = null;
+  let longPressTriggered = false;
 
   // Стан модалки відділу
   let editingCatId = null;
@@ -120,7 +130,8 @@
 
   function unpackLogNote(item) {
     const raw = item.note || '';
-    if (item.category !== 'food') {
+    const cat = resolveCategoryMeta(item);
+    if (cat.kind !== 'food') {
       return { what: '', note: raw };
     }
     const idx = raw.indexOf('\n');
@@ -133,68 +144,106 @@
     };
   }
 
-  /* ---------- Відділи (localStorage + автовиявлення з бази) ---------- */
+  /* ---------- Відділи з таблиці categories у Supabase ---------- */
 
-  function readStoredCategories() {
-    try {
-      const raw = localStorage.getItem(CATEGORIES_STORAGE_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
+  function detectCategoryKind(row) {
+    const id = String(row.id || '');
+    const nameLower = String(row.name || '').trim().toLocaleLowerCase('uk');
+    const emoji = String(row.emoji || '').trim();
+
+    if (
+      id === '2e5b8ad4-ee34-45a0-9014-10888a194244' ||
+      nameLower === 'їжа' ||
+      nameLower === 'food' ||
+      (!row.created_by && emoji === '🍽')
+    ) {
+      return 'food';
     }
+    if (
+      id === '8af83cbd-a8bb-4f39-a0f1-a14c4808c405' ||
+      nameLower === 'туалет' ||
+      nameLower === 'toilet' ||
+      (!row.created_by && emoji === '💩')
+    ) {
+      return 'toilet';
+    }
+    return 'custom';
   }
 
-  function writeStoredCategories(list) {
-    localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(list));
+  function normalizeCategoryRow(row) {
+    const kind = detectCategoryKind(row);
+    const id = String(row.id);
+    const title = String(row.name || '').trim() || 'Відділ';
+    const icon = String(row.emoji || '').trim() || '✨';
+    const color = String(row.color || '').trim() || '#7aa2f7';
+    return {
+      id,
+      title,
+      name: title,
+      icon,
+      emoji: icon,
+      color,
+      created_by: row.created_by || null,
+      created_at: row.created_at || null,
+      kind,
+      types: kind === 'food' ? FOOD_TYPES : kind === 'toilet' ? TOILET_TYPES : [],
+    };
   }
 
   function buildCategoriesMap() {
-    const stored = readStoredCategories();
-    const storedById = new Map(stored.map((c) => [c.id, c]));
+    const sourceRows = categoriesRows.length ? categoriesRows : FALLBACK_CATEGORIES;
     const map = new Map();
 
-    for (const def of DEFAULT_CATEGORIES) {
-      const saved = storedById.get(def.id);
-      if (saved?.deleted) continue;
-      map.set(def.id, {
-        ...def,
-        ...(saved ? { title: saved.title, icon: saved.icon, color: saved.color } : {}),
-      });
-    }
-
-    const customList = stored
-      .filter((c) => !c.deleted && !DEFAULT_CATEGORIES.some((d) => d.id === c.id))
-      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-
-    for (const custom of customList) {
-      map.set(custom.id, {
-        id: custom.id,
-        title: custom.title,
-        icon: custom.icon || '✨',
-        color: custom.color || '#7aa2f7',
-        builtin: false,
-        types: custom.types || [],
-        createdAt: custom.createdAt || 0,
-      });
-    }
-
-    // Якщо в логах з інших пристроїв є відділи, яких ще немає локально — додаємо їх
-    for (const log of allLogs) {
-      if (log.category && !map.has(log.category)) {
-        const saved = storedById.get(log.category);
-        if (saved?.deleted) continue;
-        map.set(log.category, {
-          id: log.category,
-          title: log.category,
-          icon: '✨',
-          color: '#7aa2f7',
-          builtin: false,
-          types: [],
-        });
-      }
+    for (const row of sourceRows) {
+      const cat = normalizeCategoryRow(row);
+      map.set(cat.id, cat);
     }
 
     categoriesMap = map;
+
+    if (activeCategory) {
+      const resolvedActive = resolveLogCategoryId(activeCategory);
+      activeCategory = map.has(resolvedActive)
+        ? resolvedActive
+        : [...map.keys()][0] || '';
+    } else {
+      activeCategory = [...map.keys()][0] || '';
+    }
+
+    if (feedCatFilter !== 'all') {
+      const resolvedFilter = resolveLogCategoryId(feedCatFilter);
+      feedCatFilter = map.has(resolvedFilter) ? resolvedFilter : 'all';
+    }
+  }
+
+  /**
+   * Зіставляє значення поля logs.category (UUID відділу, стару назву "Їжа"/"Туалет" або старий ключ "food"/"toilet")
+   * із актуальним id відділу з таблиці categories.
+   */
+  function resolveLogCategoryId(rawCategory) {
+    if (!rawCategory) return '';
+    if (!categoriesMap.size) buildCategoriesMap();
+    const raw = String(rawCategory).trim();
+    if (categoriesMap.has(raw)) return raw;
+
+    const rawLower = raw.toLocaleLowerCase('uk');
+    for (const cat of categoriesMap.values()) {
+      if (cat.title.trim().toLocaleLowerCase('uk') === rawLower) {
+        return cat.id;
+      }
+    }
+
+    if (rawLower === 'food' || rawLower === 'їжа') {
+      const foodCat = [...categoriesMap.values()].find((c) => c.kind === 'food');
+      if (foodCat) return foodCat.id;
+    }
+
+    if (rawLower === 'toilet' || rawLower === 'туалет') {
+      const toiletCat = [...categoriesMap.values()].find((c) => c.kind === 'toilet');
+      if (toiletCat) return toiletCat.id;
+    }
+
+    return raw;
   }
 
   function getCategories() {
@@ -202,15 +251,39 @@
     return [...categoriesMap.values()];
   }
 
-  function getCategory(id) {
+  function getCategory(idOrRaw) {
     if (!categoriesMap.size) buildCategoriesMap();
-    return categoriesMap.get(id) || null;
+    const resolvedId = resolveLogCategoryId(idOrRaw);
+    return categoriesMap.get(resolvedId) || null;
   }
 
   function findTypeInfo(category, typeId) {
     if (!typeId) return null;
     const cat = getCategory(category);
     return cat?.types?.find((t) => t.id === typeId) || null;
+  }
+
+  function getCategoryOptions(categoryId) {
+    const catId = resolveLogCategoryId(categoryId);
+    if (!catId) return [];
+    return categoryOptionsRows
+      .filter((o) => String(o.category_id) === String(catId))
+      .map((o) => ({
+        id: String(o.id),
+        category_id: String(o.category_id),
+        label: String(o.label || '').trim(),
+        emoji: String(o.emoji || '').trim() || '✨',
+        created_by: o.created_by || null,
+        created_at: o.created_at || null,
+      }))
+      .filter((o) => o.label);
+  }
+
+  function findOptionMeta(categoryId, label) {
+    if (!label) return null;
+    const opts = getCategoryOptions(categoryId);
+    const lower = String(label).trim().toLocaleLowerCase('uk');
+    return opts.find((o) => o.label.toLocaleLowerCase('uk') === lower) || null;
   }
 
   /* ---------- Завантаження з Supabase та скелетони ---------- */
@@ -237,11 +310,15 @@
     }
 
     try {
-      const [logsList, profilesList] = await Promise.all([
+      const [categoriesList, optionsList, logsList, profilesList] = await Promise.all([
+        db.listCategories(),
+        db.listCategoryOptions(),
         db.getAllLogs(),
         db.listProfiles(),
       ]);
       if (token !== loadToken) return false;
+      categoriesRows = categoriesList;
+      categoryOptionsRows = optionsList;
       allLogs = logsList;
       profilesById = new Map(profilesList.map((p) => [String(p.id), p]));
       buildCategoriesMap();
@@ -258,6 +335,9 @@
         if (onCategoriesChanged) onCategoriesChanged();
         renderTracker();
         renderFeed();
+        if (el.dialog?.open && draft) {
+          renderOptionChips();
+        }
         const myLogs = allLogs.filter((l) => String(l.profile_id) === String(profile.id));
         await window.Daily.calendar.refreshLogs(myLogs);
       }
@@ -336,6 +416,7 @@
 
   async function saveCategory(event) {
     event.preventDefault();
+    if (!profile) return;
     const title = el.catTitleInput.value.trim().replace(/\s+/g, ' ');
     const icon = el.catIconInput.value.trim() || '✨';
     const color = el.catColorInput.value || '#7aa2f7';
@@ -357,26 +438,38 @@
 
     el.catSaveBtn.disabled = true;
     try {
-      const id = editingCatId || `cat_${Date.now()}`;
-      const stored = readStoredCategories().filter((c) => c.id !== id);
-      stored.push({
-        id,
-        title,
-        icon,
-        color,
-        createdAt: categoriesMap.get(id)?.createdAt || Date.now(),
-      });
-      writeStoredCategories(stored);
+      let savedRow;
+      if (editingCatId) {
+        savedRow = await db.updateCategory(editingCatId, {
+          name: title,
+          emoji: icon,
+          color,
+        });
+        const idx = categoriesRows.findIndex((r) => String(r.id) === String(editingCatId));
+        if (idx !== -1) categoriesRows[idx] = savedRow;
+        else categoriesRows.push(savedRow);
+      } else {
+        savedRow = await db.createCategory({
+          name: title,
+          emoji: icon,
+          color,
+          created_by: profile.id,
+        });
+        categoriesRows.push(savedRow);
+      }
+
       buildCategoriesMap();
 
-      activeCategory = id;
+      const savedId = String(savedRow.id);
+      activeCategory = savedId;
       el.catDialog.close();
 
-      if (onCategoriesChanged) onCategoriesChanged(id);
+      if (onCategoriesChanged) onCategoriesChanged(savedId);
       renderTracker();
       renderFeed();
       const myLogs = allLogs.filter((l) => String(l.profile_id) === String(profile.id));
       await window.Daily.calendar.refreshLogs(myLogs);
+      window.Daily.leaderboard?.reloadFromRealtime?.();
     } catch (err) {
       showCatError('Не вдалося зберегти відділ: ' + db.formatError(err));
     } finally {
@@ -386,11 +479,17 @@
 
   async function deleteActiveCategory() {
     const cat = getCategory(activeCategory);
-    if (!cat) return;
+    if (!cat || !profile) return;
+
+    const isCreator = Boolean(cat.created_by && String(cat.created_by) === String(profile.id));
+    if (!isCreator) {
+      window.Daily.notifyError?.('Видаляти відділ може тільки той, хто його створив.');
+      return;
+    }
 
     if (!confirm(`Видалити відділ «${cat.title}»?`)) return;
 
-    const catLogs = allLogs.filter((item) => item.category === cat.id);
+    const catLogs = allLogs.filter((item) => resolveLogCategoryId(item.category) === cat.id);
     const removeRecords = confirm(
       catLogs.length > 0
         ? `У відділі «${cat.title}» є записи (${catLogs.length}). Видалити також усі записи цього відділу?`
@@ -398,25 +497,26 @@
     );
 
     try {
-      const stored = readStoredCategories().filter((c) => c.id !== cat.id);
-      stored.push({ id: cat.id, deleted: true });
-      writeStoredCategories(stored);
+      await db.deleteCategory(cat.id, profile.id);
+      categoriesRows = categoriesRows.filter((r) => String(r.id) !== String(cat.id));
 
       if (removeRecords) {
-        await db.deleteLogsByCategory(cat.id);
-        allLogs = allLogs.filter((item) => item.category !== cat.id);
+        const matchValues = [cat.id, cat.title];
+        await db.deleteLogsByCategory(matchValues);
+        allLogs = allLogs.filter((item) => resolveLogCategoryId(item.category) !== cat.id);
       }
 
       buildCategoriesMap();
       if (feedCatFilter === cat.id) feedCatFilter = 'all';
 
       const remaining = getCategories();
-      activeCategory = remaining[0]?.id || 'food';
+      activeCategory = remaining[0]?.id || '';
 
       if (onCategoriesChanged) onCategoriesChanged('calendar');
       renderFeed();
       const myLogs = allLogs.filter((l) => String(l.profile_id) === String(profile.id));
       await window.Daily.calendar.refreshLogs(myLogs);
+      window.Daily.leaderboard?.reloadFromRealtime?.();
     } catch (err) {
       window.Daily.notifyError?.(db.formatError(err));
     }
@@ -434,13 +534,19 @@
     el.trackerDate.value = selectedDate;
     el.trackerDateLabel.textContent = formatDateLabel(selectedDate);
 
+    // Видаляти відділ може тільки його автор (created_by === profile.id)
+    const canDelete = Boolean(cat.created_by && String(cat.created_by) === String(profile.id));
+    if (el.catDeleteBtn) {
+      el.catDeleteBtn.hidden = !canDelete;
+    }
+
     if (isLoading) return;
 
     const dayLogs = allLogs
       .filter(
         (item) =>
           String(item.profile_id) === String(profile.id) &&
-          item.category === activeCategory &&
+          resolveLogCategoryId(item.category) === cat.id &&
           item.date === selectedDate
       )
       .sort((a, b) => (a.time || '').localeCompare(b.time || '') || String(a.id).localeCompare(String(b.id)));
@@ -486,6 +592,54 @@
     }
   }
 
+  function renderOptFilters() {
+    if (!el.feedOptFilterGroup || !el.feedOptFilters) return;
+    if (feedCatFilter === 'all') {
+      feedOptFilter = 'all';
+      el.feedOptFilterGroup.hidden = true;
+      el.feedOptFilters.replaceChildren();
+      return;
+    }
+
+    const opts = getCategoryOptions(feedCatFilter);
+    if (
+      feedOptFilter !== 'all' &&
+      !opts.some((o) => o.label.toLocaleLowerCase('uk') === feedOptFilter.toLocaleLowerCase('uk'))
+    ) {
+      feedOptFilter = 'all';
+    }
+
+    if (!opts.length) {
+      el.feedOptFilterGroup.hidden = true;
+      el.feedOptFilters.replaceChildren();
+      return;
+    }
+
+    el.feedOptFilterGroup.hidden = false;
+    el.feedOptFilters.replaceChildren();
+
+    const allBtn = document.createElement('button');
+    allBtn.type = 'button';
+    allBtn.className = 'btn btn-secondary btn-sm';
+    allBtn.dataset.optFilter = 'all';
+    allBtn.textContent = 'Усі';
+    allBtn.classList.toggle('is-active', feedOptFilter === 'all');
+    el.feedOptFilters.append(allBtn);
+
+    for (const opt of opts) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-secondary btn-sm';
+      btn.dataset.optFilter = opt.label;
+      btn.textContent = `${opt.emoji} ${opt.label}`;
+      btn.classList.toggle(
+        'is-active',
+        feedOptFilter.toLocaleLowerCase('uk') === opt.label.toLocaleLowerCase('uk')
+      );
+      el.feedOptFilters.append(btn);
+    }
+  }
+
   function renderProfileFilters() {
     el.feedProfileFilters.replaceChildren();
 
@@ -523,6 +677,7 @@
     el.feedDateLabel.textContent = formatDateLabel(feedDate);
 
     renderCatFilters();
+    renderOptFilters();
     renderProfileFilters();
 
     if (isLoading) return;
@@ -530,7 +685,14 @@
     const filtered = allLogs
       .filter((item) => {
         if (item.date !== feedDate) return false;
-        if (feedCatFilter !== 'all' && item.category !== feedCatFilter) return false;
+        if (feedCatFilter !== 'all' && resolveLogCategoryId(item.category) !== feedCatFilter) return false;
+        if (feedCatFilter !== 'all' && feedOptFilter !== 'all') {
+          const itemOpts = Array.isArray(item.options) ? item.options : [];
+          const hasOpt = itemOpts.some(
+            (lbl) => String(lbl).trim().toLocaleLowerCase('uk') === feedOptFilter.toLocaleLowerCase('uk')
+          );
+          if (!hasOpt) return false;
+        }
         if (feedProfileFilter !== 'all' && String(item.profile_id) !== feedProfileFilter) return false;
         return true;
       })
@@ -558,22 +720,23 @@
     const cat = getCategory(item.category);
     if (cat) return cat;
     return {
-      id: item.category,
+      id: String(item.category || ''),
       title: item.category || 'Відділ',
       icon: '✨',
       color: '#7aa2f7',
+      kind: 'custom',
       types: [],
     };
   }
 
   function createLogCard(item, { showCategory, showAuthor, canEdit }) {
     const cat = resolveCategoryMeta(item);
-    const typeInfo = findTypeInfo(item.category, item.type);
+    const typeInfo = findTypeInfo(cat.id, item.type);
     const author = profilesById.get(String(item.profile_id));
     const { what, note } = unpackLogNote(item);
 
     const card = document.createElement('article');
-    card.className = `log-item log-item--${item.category}`;
+    card.className = `log-item log-item--${cat.kind || cat.id}`;
     card.dataset.id = String(item.id);
 
     const timeEl = document.createElement('div');
@@ -640,6 +803,24 @@
       main.append(noteEl);
     }
 
+    const itemOptions = Array.isArray(item.options) ? item.options.filter(Boolean) : [];
+    if (itemOptions.length > 0) {
+      const optsWrap = document.createElement('div');
+      optsWrap.className = 'log-options-list';
+      for (const rawLabel of itemOptions) {
+        const lbl = String(rawLabel).trim();
+        if (!lbl) continue;
+        const optMeta = findOptionMeta(cat.id, lbl);
+        const tag = document.createElement('span');
+        tag.className = 'log-option-tag';
+        tag.textContent = optMeta?.emoji ? `${optMeta.emoji} ${lbl}` : lbl;
+        optsWrap.append(tag);
+      }
+      if (optsWrap.childElementCount) {
+        main.append(optsWrap);
+      }
+    }
+
     if (item.photo_url) {
       const img = document.createElement('img');
       img.className = 'log-thumb';
@@ -691,6 +872,7 @@
       date: selectedDate || todayKey(),
       time: currentTimeStr(),
       type: cat.types?.[0]?.id || '',
+      options: [],
       what: '',
       note: '',
       photoUrl: null,
@@ -707,10 +889,11 @@
 
     draft = {
       id: existing.id,
-      category: existing.category,
+      category: cat.id,
       date: existing.date,
       time: (existing.time || currentTimeStr()).slice(0, 5),
       type: existing.type || cat.types?.[0]?.id || '',
+      options: Array.isArray(existing.options) ? [...existing.options] : [],
       what,
       note,
       photoUrl: existing.photo_url || null,
@@ -722,6 +905,10 @@
   function openModalWithDraft(titleText) {
     const cat = getCategory(draft.category);
     const hasTypes = !!cat?.types?.length;
+    const isFood = cat?.kind === 'food';
+
+    optionsEditMode = false;
+    closeCustomOptionForm();
 
     el.dialogTitle.textContent = titleText;
     el.dateInput.value = draft.date;
@@ -729,12 +916,13 @@
     el.whatInput.value = draft.what;
     el.noteInput.value = draft.note;
     el.typeField.hidden = !hasTypes;
-    el.foodField.hidden = draft.category !== 'food';
+    el.foodField.hidden = !isFood;
     el.deleteBtn.hidden = !draft.id;
 
     showError('');
     setBusy(false);
     if (hasTypes) renderTypeChips();
+    renderOptionChips();
     renderDraftPhoto();
 
     el.dialog.classList.remove('is-closing');
@@ -794,6 +982,182 @@
 
       btn.append(icon, label);
       el.types.append(btn);
+    }
+  }
+
+  /* ---------- Чіпи варіантів (тегів) відділу ---------- */
+
+  function isOptionSelected(label) {
+    if (!draft || !Array.isArray(draft.options)) return false;
+    const lower = String(label).trim().toLocaleLowerCase('uk');
+    return draft.options.some((o) => String(o).trim().toLocaleLowerCase('uk') === lower);
+  }
+
+  function toggleDraftOption(label) {
+    if (!draft) return;
+    if (!Array.isArray(draft.options)) draft.options = [];
+    const lower = String(label).trim().toLocaleLowerCase('uk');
+    const idx = draft.options.findIndex((o) => String(o).trim().toLocaleLowerCase('uk') === lower);
+    if (idx !== -1) {
+      draft.options.splice(idx, 1);
+    } else {
+      draft.options.push(label);
+    }
+    renderOptionChips();
+  }
+
+  function renderOptionChips() {
+    if (!el.options || !draft) return;
+    const opts = getCategoryOptions(draft.category);
+    const hasOwn = opts.some((o) => o.created_by && String(o.created_by) === String(profile?.id));
+
+    if (!hasOwn) optionsEditMode = false;
+    if (el.optionsEditToggle) {
+      el.optionsEditToggle.hidden = !hasOwn;
+      el.optionsEditToggle.textContent = optionsEditMode ? 'Готово' : 'Редагувати';
+      el.optionsEditToggle.classList.toggle('is-active', optionsEditMode);
+    }
+
+    el.options.classList.toggle('is-editing', optionsEditMode);
+    el.options.replaceChildren();
+
+    for (const opt of opts) {
+      const isOwn = Boolean(opt.created_by && String(opt.created_by) === String(profile?.id));
+      const active = isOptionSelected(opt.label);
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'option-chip';
+      btn.dataset.optionId = opt.id;
+      btn.dataset.optionLabel = opt.label;
+      if (isOwn) {
+        btn.dataset.own = 'true';
+        btn.title = 'Утримуйте або натисніть «Редагувати», щоб видалити свій варіант';
+      }
+      btn.classList.toggle('is-active', active);
+      btn.setAttribute('aria-pressed', String(active));
+
+      const emojiSpan = document.createElement('span');
+      emojiSpan.className = 'option-chip-emoji';
+      emojiSpan.textContent = opt.emoji || '✨';
+
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'option-chip-label';
+      labelSpan.textContent = opt.label;
+
+      btn.append(emojiSpan, labelSpan);
+
+      if (isOwn) {
+        const delSpan = document.createElement('span');
+        delSpan.className = 'option-chip-del';
+        delSpan.dataset.delOption = opt.id;
+        delSpan.setAttribute('aria-label', `Видалити варіант ${opt.label}`);
+        delSpan.title = 'Видалити варіант';
+        delSpan.textContent = '×';
+        btn.append(delSpan);
+      }
+
+      el.options.append(btn);
+    }
+
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'option-chip option-chip--add';
+    addBtn.dataset.action = 'open-custom-option';
+    addBtn.textContent = '+ Свій';
+    el.options.append(addBtn);
+  }
+
+  function openCustomOptionForm() {
+    if (!el.optionCustomForm) return;
+    el.optionCustomForm.hidden = false;
+    el.optionEmojiInput.value = '✨';
+    el.optionLabelInput.value = '';
+    showError('');
+    el.optionLabelInput.focus();
+  }
+
+  function closeCustomOptionForm() {
+    if (!el.optionCustomForm) return;
+    el.optionCustomForm.hidden = true;
+    if (el.optionLabelInput) el.optionLabelInput.value = '';
+    if (el.optionEmojiInput) el.optionEmojiInput.value = '✨';
+  }
+
+  async function saveCustomOption() {
+    if (!draft || !profile) return;
+    const label = el.optionLabelInput.value.trim().replace(/\s+/g, ' ');
+    const emoji = el.optionEmojiInput.value.trim() || '✨';
+
+    if (!label) {
+      showError('Введіть назву варіанту');
+      el.optionLabelInput.focus();
+      return;
+    }
+
+    const opts = getCategoryOptions(draft.category);
+    const existing = opts.find((o) => o.label.toLocaleLowerCase('uk') === label.toLocaleLowerCase('uk'));
+    if (existing) {
+      if (!isOptionSelected(existing.label)) {
+        draft.options.push(existing.label);
+      }
+      closeCustomOptionForm();
+      renderOptionChips();
+      return;
+    }
+
+    el.optionAddSaveBtn.disabled = true;
+    showError('');
+    try {
+      const created = await db.createCategoryOption({
+        category_id: draft.category,
+        label,
+        emoji,
+        created_by: profile.id,
+      });
+      if (!categoryOptionsRows.some((r) => String(r.id) === String(created.id))) {
+        categoryOptionsRows.push(created);
+      }
+      if (!isOptionSelected(created.label)) {
+        draft.options.push(created.label);
+      }
+      closeCustomOptionForm();
+      renderOptionChips();
+      renderFeed();
+      window.Daily.leaderboard?.reloadFromRealtime?.();
+    } catch (err) {
+      showError('Не вдалося додати варіант: ' + db.formatError(err));
+    } finally {
+      el.optionAddSaveBtn.disabled = false;
+    }
+  }
+
+  async function deleteOptionById(optionId) {
+    if (!profile) return;
+    const opt = categoryOptionsRows.find((o) => String(o.id) === String(optionId));
+    if (!opt) return;
+
+    const isCreator = Boolean(opt.created_by && String(opt.created_by) === String(profile.id));
+    if (!isCreator) {
+      showError('Видаляти варіант може тільки той, хто його створив.');
+      return;
+    }
+
+    const titleText = `${opt.emoji ? opt.emoji + ' ' : ''}${opt.label}`;
+    if (!confirm(`Видалити варіант «${titleText}»?`)) return;
+
+    try {
+      await db.deleteCategoryOption(opt.id, profile.id);
+      categoryOptionsRows = categoryOptionsRows.filter((o) => String(o.id) !== String(opt.id));
+      if (draft && Array.isArray(draft.options)) {
+        const lower = String(opt.label).trim().toLocaleLowerCase('uk');
+        draft.options = draft.options.filter((lbl) => String(lbl).trim().toLocaleLowerCase('uk') !== lower);
+      }
+      renderOptionChips();
+      renderTracker();
+      renderFeed();
+    } catch (err) {
+      showError('Не вдалося видалити варіант: ' + db.formatError(err));
     }
   }
 
@@ -954,19 +1318,23 @@
     event.preventDefault();
     if (!draft || el.saveBtn.disabled || !profile) return;
 
+    const cat = getCategory(draft.category);
+    const isFood = cat?.kind === 'food';
+    const categoryId = String(cat ? cat.id : resolveLogCategoryId(draft.category));
+
     const date = el.dateInput.value || todayKey();
     const time = el.timeInput.value || currentTimeStr();
-    const what = draft.category === 'food' ? el.whatInput.value.trim() : '';
+    const what = isFood ? el.whatInput.value.trim() : '';
     const noteText = el.noteInput.value.trim();
     const hasPhoto = !!(draft.newPhotoBlob || draft.photoUrl);
 
-    if (draft.category === 'food' && !what && !noteText && !hasPhoto) {
+    if (isFood && !what && !noteText && !hasPhoto) {
       showError('Вкажіть, що їли, або додайте нотатку чи фото');
       el.whatInput.focus();
       return;
     }
 
-    const combinedNote = draft.category === 'food' ? packFoodNote(what, noteText) : noteText;
+    const combinedNote = isFood ? packFoodNote(what, noteText) : noteText;
 
     const origSaveText = el.saveBtn.textContent;
     el.saveBtn.disabled = true;
@@ -982,12 +1350,13 @@
 
       const payload = {
         profile_id: profile.id,
-        category: draft.category,
+        category: categoryId,
         date,
         time,
         type: draft.type || null,
         note: combinedNote || null,
         photo_url: finalPhotoUrl || null,
+        options: Array.isArray(draft.options) ? draft.options : [],
       };
 
       if (draft.id) {
@@ -1071,6 +1440,8 @@
     el.feedDateLabel = $('feed-date-label');
     el.feedDate = $('feed-date');
     el.feedCatFilters = $('feed-cat-filters');
+    el.feedOptFilterGroup = $('feed-opt-filter-group');
+    el.feedOptFilters = $('feed-opt-filters');
     el.feedProfileFilters = $('feed-profile-filters');
     el.feedList = $('feed-list');
     el.feedEmpty = $('feed-empty');
@@ -1082,6 +1453,14 @@
     el.timeInput = $('log-time');
     el.typeField = $('log-type-field');
     el.types = $('log-types');
+    el.optionsField = $('log-options-field');
+    el.optionsEditToggle = $('log-options-edit-toggle');
+    el.options = $('log-options');
+    el.optionCustomForm = $('log-option-custom-form');
+    el.optionEmojiInput = $('log-option-emoji');
+    el.optionLabelInput = $('log-option-label');
+    el.optionAddSaveBtn = $('log-option-add-save');
+    el.optionAddCancelBtn = $('log-option-add-cancel');
     el.foodField = $('log-food-field');
     el.whatInput = $('log-what');
     el.noteInput = $('log-note');
@@ -1207,6 +1586,14 @@
       const btn = e.target.closest('[data-filter]');
       if (!btn) return;
       feedCatFilter = btn.dataset.filter;
+      feedOptFilter = 'all';
+      renderFeed();
+    });
+
+    el.feedOptFilters?.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-opt-filter]');
+      if (!btn) return;
+      feedOptFilter = btn.dataset.optFilter;
       renderFeed();
     });
 
@@ -1222,6 +1609,73 @@
       if (!chip || !draft) return;
       draft.type = chip.dataset.type;
       renderTypeChips();
+    });
+
+    el.optionsEditToggle?.addEventListener('click', () => {
+      optionsEditMode = !optionsEditMode;
+      renderOptionChips();
+    });
+
+    const clearLongPress = () => {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    };
+
+    el.options?.addEventListener('pointerdown', (e) => {
+      clearLongPress();
+      longPressTriggered = false;
+      if (e.target.closest('[data-del-option]')) return;
+      const chip = e.target.closest('.option-chip[data-own="true"]');
+      if (!chip) return;
+      const optionId = chip.dataset.optionId;
+      longPressTimer = setTimeout(() => {
+        longPressTimer = null;
+        longPressTriggered = true;
+        deleteOptionById(optionId);
+      }, 550);
+    });
+
+    el.options?.addEventListener('pointerup', clearLongPress);
+    el.options?.addEventListener('pointerleave', clearLongPress);
+    el.options?.addEventListener('pointercancel', clearLongPress);
+
+    el.options?.addEventListener('click', (e) => {
+      if (longPressTriggered) {
+        longPressTriggered = false;
+        return;
+      }
+      const delBtn = e.target.closest('[data-del-option]');
+      if (delBtn) {
+        e.stopPropagation();
+        deleteOptionById(delBtn.dataset.delOption);
+        return;
+      }
+      const addBtn = e.target.closest('[data-action="open-custom-option"]');
+      if (addBtn) {
+        openCustomOptionForm();
+        return;
+      }
+      const chip = e.target.closest('.option-chip[data-option-label]');
+      if (!chip || !draft) return;
+      if (optionsEditMode && chip.dataset.own === 'true') {
+        deleteOptionById(chip.dataset.optionId);
+        return;
+      }
+      toggleDraftOption(chip.dataset.optionLabel);
+    });
+
+    el.optionAddSaveBtn?.addEventListener('click', saveCustomOption);
+    el.optionAddCancelBtn?.addEventListener('click', closeCustomOptionForm);
+    el.optionLabelInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        saveCustomOption();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeCustomOptionForm();
+      }
     });
 
     el.photoFile.addEventListener('click', () => el.photoInput.click());
@@ -1251,6 +1705,7 @@
     selectedDate = todayKey();
     feedDate = todayKey();
     feedCatFilter = 'all';
+    feedOptFilter = 'all';
     feedProfileFilter = 'all';
     buildCategoriesMap();
 
@@ -1268,7 +1723,7 @@
   }
 
   function showCategory(category) {
-    activeCategory = category;
+    activeCategory = resolveLogCategoryId(category) || category;
     renderTracker();
   }
 
@@ -1302,6 +1757,9 @@
     showFeed,
     hide,
     getCategories,
+    getCategory,
+    getCategoryOptions,
+    resolveLogCategoryId,
     openNewCategoryModal,
     reloadFromRealtime,
   };

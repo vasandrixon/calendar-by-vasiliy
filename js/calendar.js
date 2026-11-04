@@ -33,7 +33,8 @@
 
   let profile = null;
   let entries = new Map(); // date -> day_mark row
-  let logCats = new Map(); // date -> Set<category>
+  let rawLogs = []; // записи активного профілю
+  let logCats = new Map(); // date -> Set<categoryId>
   let viewYear = 0;
   let viewMonth = 0;
   let loadToken = 0;
@@ -95,7 +96,8 @@
       ]);
       if (token !== loadToken) return false;
       entries = new Map(marksList.map((e) => [e.date, e]));
-      buildLogCats(logsList);
+      rawLogs = logsList;
+      buildLogCats(rawLogs);
       return true;
     } finally {
       if (token === loadToken) el.grid.classList.remove('is-loading');
@@ -104,10 +106,13 @@
 
   function buildLogCats(logsList) {
     logCats = new Map();
+    const resolveCatId = window.Daily.logs?.resolveLogCategoryId;
     for (const item of logsList) {
       if (!item.date || !item.category) continue;
+      const catId = resolveCatId ? resolveCatId(item.category) : item.category;
+      if (!catId) continue;
       if (!logCats.has(item.date)) logCats.set(item.date, new Set());
-      logCats.get(item.date).add(item.category);
+      logCats.get(item.date).add(catId);
     }
   }
 
@@ -119,7 +124,8 @@
         ? providedProfileLogs
         : await db.getProfileLogs(targetId);
       if (!profile || String(profile.id) !== String(targetId)) return;
-      buildLogCats(logsList);
+      rawLogs = logsList;
+      buildLogCats(rawLogs);
       renderGrid();
       renderLegend();
     } catch (err) {
@@ -690,6 +696,7 @@
     if (el.dialog.open) el.dialog.close();
     profile = activeProfile;
     entries = new Map();
+    rawLogs = [];
     logCats = new Map();
     const t = today();
     viewYear = t.getFullYear();
@@ -708,6 +715,7 @@
     loadToken++;
     profile = null;
     entries = new Map();
+    rawLogs = [];
     logCats = new Map();
     el.grid.replaceChildren();
   }

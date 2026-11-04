@@ -152,6 +152,18 @@
           auth.renderProfileList();
         }
       },
+      onCategoriesChange: () => {
+        if (currentProfile) {
+          logs.reloadFromRealtime();
+          leaderboard.reloadFromRealtime();
+        }
+      },
+      onCategoryOptionsChange: () => {
+        if (currentProfile) {
+          logs.reloadFromRealtime();
+          leaderboard.reloadFromRealtime();
+        }
+      },
       onStatus: (status) => {
         if (!statusEl) return;
         if (status === 'SUBSCRIBED') {
@@ -219,7 +231,16 @@
     logs.init({
       onCategoriesChange: (nextTab) => {
         renderTabs();
-        if (nextTab) selectTab(nextTab);
+        if (nextTab) {
+          selectTab(nextTab);
+        } else if (
+          currentTab !== 'calendar' &&
+          currentTab !== 'feed' &&
+          currentTab !== 'leaderboard'
+        ) {
+          const exists = logs.getCategories().some((c) => c.id === currentTab);
+          if (!exists) selectTab('calendar');
+        }
       },
     });
     leaderboard.init();

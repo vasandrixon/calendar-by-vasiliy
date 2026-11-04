@@ -21,6 +21,8 @@
 
   let currentProfile = null;
   let period = 'all'; // 'week' | 'month' | 'all'
+  let categories = [];
+  let categoryOptions = [];
   let profiles = [];
   let dayMarks = [];
   let logs = [];
@@ -91,20 +93,76 @@
     return count;
   }
 
+  function getNormalizedCategories() {
+    const fromLogs = window.Daily.logs?.getCategories?.();
+    if (categories.length) {
+      return categories.map((row) => {
+        const id = String(row.id);
+        const title = String(row.name || row.title || '').trim() || 'Відділ';
+        const icon = String(row.emoji || row.icon || '').trim() || '✨';
+        const color = String(row.color || '').trim() || '#7aa2f7';
+        const nameLower = title.toLocaleLowerCase('uk');
+        let kind = 'custom';
+        if (
+          id === '2e5b8ad4-ee34-45a0-9014-10888a194244' ||
+          nameLower === 'їжа' ||
+          nameLower === 'food' ||
+          (!row.created_by && icon === '🍽')
+        ) {
+          kind = 'food';
+        } else if (
+          id === '8af83cbd-a8bb-4f39-a0f1-a14c4808c405' ||
+          nameLower === 'туалет' ||
+          nameLower === 'toilet' ||
+          (!row.created_by && icon === '💩')
+        ) {
+          kind = 'toilet';
+        }
+        return { id, title, icon, color, kind };
+      });
+    }
+    return fromLogs || [];
+  }
+
+  function resolveCatId(rawCategory, catList) {
+    if (!rawCategory) return '';
+    const viaLogs = window.Daily.logs?.resolveLogCategoryId?.(rawCategory);
+    if (viaLogs && catList.some((c) => c.id === viaLogs)) {
+      return viaLogs;
+    }
+    const raw = String(rawCategory).trim();
+    const direct = catList.find((c) => c.id === raw);
+    if (direct) return direct.id;
+
+    const rawLower = raw.toLocaleLowerCase('uk');
+    const byName = catList.find((c) => c.title.toLocaleLowerCase('uk') === rawLower);
+    if (byName) return byName.id;
+
+    if (rawLower === 'food' || rawLower === 'їжа') {
+      const foodCat = catList.find((c) => c.kind === 'food');
+      if (foodCat) return foodCat.id;
+    }
+    if (rawLower === 'toilet' || rawLower === 'туалет') {
+      const toiletCat = catList.find((c) => c.kind === 'toilet');
+      if (toiletCat) return toiletCat.id;
+    }
+    return raw;
+  }
+
   function computeStandings() {
+    const catList = getNormalizedCategories();
     const allMarkedByProfile = new Map(); // profileIdStr -> Set<date>
     const periodMarkedByProfile = new Map(); // profileIdStr -> Set<date>
     const periodLogsByProfileDate = new Map(); // profileIdStr -> Map<date, count>
-    const foodCountByProfile = new Map(); // profileIdStr -> count
-    const toiletCountByProfile = new Map(); // profileIdStr -> count
+    const catCountsByProfile = new Map(); // profileIdStr -> Map<catId, count>
+    const catOptionCounts = new Map(); // catId -> Map<labelLower, { label, count }>
 
     for (const p of profiles) {
       const pid = String(p.id);
       allMarkedByProfile.set(pid, new Set());
       periodMarkedByProfile.set(pid, new Set());
       periodLogsByProfileDate.set(pid, new Map());
-      foodCountByProfile.set(pid, 0);
-      toiletCountByProfile.set(pid, 0);
+      catCountsByProfile.set(pid, new Map());
     }
 
     for (const mark of dayMarks) {
@@ -126,13 +184,34 @@
       if (!periodLogsByProfileDate.has(pid)) {
         periodLogsByProfileDate.set(pid, new Map());
       }
+      if (!catCountsByProfile.has(pid)) {
+        catCountsByProfile.set(pid, new Map());
+      }
       const dateMap = periodLogsByProfileDate.get(pid);
       dateMap.set(log.date, (dateMap.get(log.date) || 0) + 1);
 
-      if (log.category === 'food') {
-        foodCountByProfile.set(pid, (foodCountByProfile.get(pid) || 0) + 1);
-      } else if (log.category === 'toilet') {
-        toiletCountByProfile.set(pid, (toiletCountByProfile.get(pid) || 0) + 1);
+      const catId = resolveCatId(log.category, catList);
+      if (catId) {
+        const cMap = catCountsByProfile.get(pid);
+        cMap.set(catId, (cMap.get(catId) || 0) + 1);
+
+        if (Array.isArray(log.options) && log.options.length > 0) {
+          if (!catOptionCounts.has(catId)) {
+            catOptionCounts.set(catId, new Map());
+          }
+          const optMap = catOptionCounts.get(catId);
+          for (const rawOpt of log.options) {
+            const lbl = String(rawOpt || '').trim();
+            if (!lbl) continue;
+            const key = lbl.toLocaleLowerCase('uk');
+            const prev = optMap.get(key);
+            if (prev) {
+              prev.count += 1;
+            } else {
+              optMap.set(key, { label: lbl, count: 1 });
+            }
+          }
+        }
       }
     }
 
@@ -160,8 +239,7 @@
         markedDays,
         cappedLogs,
         totalPoints,
-        foodCount: foodCountByProfile.get(pid) || 0,
-        toiletCount: toiletCountByProfile.get(pid) || 0,
+        catCounts: catCountsByProfile.get(pid) || new Map(),
       };
     });
 
@@ -177,15 +255,54 @@
       r.rank = idx + 1;
     });
 
-    const topFood = [...rows]
-      .filter((r) => r.foodCount > 0)
-      .sort((a, b) => b.foodCount - a.foodCount || b.totalPoints - a.totalPoints)[0] || null;
+    const categoryLeaders = catList.map((cat) => {
+      const winner =
+        [...rows]
+          .filter((r) => (r.catCounts.get(cat.id) || 0) > 0)
+          .sort(
+            (a, b) =>
+              (b.catCounts.get(cat.id) || 0) - (a.catCounts.get(cat.id) || 0) ||
+              b.totalPoints - a.totalPoints
+          )[0] || null;
 
-    const topToilet = [...rows]
-      .filter((r) => r.toiletCount > 0)
-      .sort((a, b) => b.toiletCount - a.toiletCount || b.totalPoints - a.totalPoints)[0] || null;
+      let title = `Чемпіон: ${cat.title}`;
+      if (cat.kind === 'food') title = 'Головний ненажера';
+      else if (cat.kind === 'toilet') title = 'Король трону';
 
-    return { rows, topFood, topToilet };
+      let topOption = null;
+      const optMap = catOptionCounts.get(cat.id);
+      if (optMap && optMap.size > 0) {
+        const sortedOpts = [...optMap.values()].sort(
+          (a, b) => b.count - a.count || a.label.localeCompare(b.label, 'uk')
+        );
+        const best = sortedOpts[0];
+        if (best && best.count > 0) {
+          const meta = categoryOptions.find(
+            (o) =>
+              String(o.category_id) === String(cat.id) &&
+              String(o.label || '').trim().toLocaleLowerCase('uk') ===
+                best.label.toLocaleLowerCase('uk')
+          );
+          topOption = {
+            label: best.label,
+            emoji: meta?.emoji || '',
+            count: best.count,
+          };
+        }
+      }
+
+      return {
+        catId: cat.id,
+        icon: cat.icon,
+        title,
+        subtitle: `Найбільше записів у «${cat.title}»`,
+        winner,
+        count: winner ? winner.catCounts.get(cat.id) || 0 : 0,
+        topOption,
+      };
+    });
+
+    return { rows, categoryLeaders };
   }
 
   /* ---------- Завантаження з Supabase ---------- */
@@ -209,12 +326,16 @@
     if (showSkeleton) renderSkeletons();
 
     try {
-      const [profilesList, marksList, logsList] = await Promise.all([
+      const [categoriesList, optionsList, profilesList, marksList, logsList] = await Promise.all([
+        db.listCategories(),
+        db.listCategoryOptions(),
         db.listProfiles(),
         db.getAllDayMarks(),
         db.getAllLogs(),
       ]);
       if (token !== loadToken) return false;
+      categories = categoriesList;
+      categoryOptions = optionsList;
       profiles = profilesList;
       dayMarks = marksList;
       logs = logsList;
@@ -237,9 +358,9 @@
 
     if (isLoading && profiles.length === 0) return;
 
-    const { rows, topFood, topToilet } = computeStandings();
+    const { rows, categoryLeaders } = computeStandings();
 
-    renderTitles(topFood, topToilet);
+    renderTitles(categoryLeaders);
 
     el.podium.replaceChildren();
     el.list.replaceChildren();
@@ -259,27 +380,10 @@
     }
   }
 
-  function renderTitles(topFood, topToilet) {
+  function renderTitles(categoryLeaders) {
     el.titles.replaceChildren();
 
-    const cards = [
-      {
-        icon: '🍽',
-        title: 'Головний ненажера',
-        subtitle: 'Найбільше записів у «Їжа»',
-        winner: topFood,
-        count: topFood?.foodCount || 0,
-      },
-      {
-        icon: '💩',
-        title: 'Король трону',
-        subtitle: 'Найбільше записів у «Туалет»',
-        winner: topToilet,
-        count: topToilet?.toiletCount || 0,
-      },
-    ];
-
-    for (const c of cards) {
+    for (const c of categoryLeaders) {
       const card = document.createElement('div');
       card.className = 'title-card';
       if (c.winner && String(c.winner.profile.id) === String(currentProfile?.id)) {
@@ -330,6 +434,29 @@
       }
 
       card.append(body);
+
+      const statRow = document.createElement('div');
+      statRow.className = 'title-card-stat';
+
+      const statLabel = document.createElement('span');
+      statLabel.className = 'title-card-stat-label';
+      statLabel.textContent = 'Популярний варіант:';
+      statRow.append(statLabel);
+
+      if (c.topOption) {
+        const tag = document.createElement('span');
+        tag.className = 'log-option-tag title-card-stat-tag';
+        const prefix = c.topOption.emoji ? `${c.topOption.emoji} ` : '';
+        tag.textContent = `${prefix}${c.topOption.label} (${c.topOption.count})`;
+        statRow.append(tag);
+      } else {
+        const emptyOpt = document.createElement('span');
+        emptyOpt.className = 'title-card-stat-empty';
+        emptyOpt.textContent = 'ще немає';
+        statRow.append(emptyOpt);
+      }
+
+      card.append(statRow);
       el.titles.append(card);
     }
   }
@@ -488,6 +615,8 @@
   function hide() {
     loadToken++;
     currentProfile = null;
+    categories = [];
+    categoryOptions = [];
     profiles = [];
     dayMarks = [];
     logs = [];

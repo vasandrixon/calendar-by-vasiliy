@@ -3,8 +3,10 @@
  *
  * Таблиці:
  *  - profiles(id, name unique, avatar_url)
+ *  - categories(id uuid, name, emoji, color, created_by, created_at)
+ *  - category_options(id uuid, category_id, label, emoji, created_by, created_at)
  *  - day_marks(profile_id, date, done, mood, note, photo_url, unique(profile_id, date))
- *  - logs(id, profile_id, category, date, time, type, note, photo_url)
+ *  - logs(id, profile_id, category, date, time, type, note, photo_url, options text[])
  * Bucket:
  *  - photos (публічний)
  */
@@ -145,6 +147,86 @@
     return data;
   }
 
+  /* ---------- Таблиця categories ---------- */
+
+  async function listCategories() {
+    const sb = ensureClient();
+    const { data, error } = await sb
+      .from('categories')
+      .select('id, name, emoji, color, created_by, created_at')
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+    if (error) throw new Error(formatError(error));
+    return data || [];
+  }
+
+  async function createCategory({ name, emoji, color, created_by }) {
+    const sb = ensureClient();
+    const { data, error } = await sb
+      .from('categories')
+      .insert({ name, emoji, color, created_by })
+      .select('id, name, emoji, color, created_by, created_at')
+      .single();
+    if (error) throw new Error(formatError(error));
+    return data;
+  }
+
+  async function updateCategory(id, patch) {
+    const sb = ensureClient();
+    const { data, error } = await sb
+      .from('categories')
+      .update(patch)
+      .eq('id', id)
+      .select('id, name, emoji, color, created_by, created_at')
+      .single();
+    if (error) throw new Error(formatError(error));
+    return data;
+  }
+
+  async function deleteCategory(id, profileId) {
+    const sb = ensureClient();
+    const { error } = await sb
+      .from('categories')
+      .delete()
+      .eq('id', id)
+      .eq('created_by', profileId);
+    if (error) throw new Error(formatError(error));
+  }
+
+  /* ---------- Таблиця category_options ---------- */
+
+  async function listCategoryOptions() {
+    const sb = ensureClient();
+    const { data, error } = await sb
+      .from('category_options')
+      .select('id, category_id, label, emoji, created_by, created_at')
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+    if (error) throw new Error(formatError(error));
+    return data || [];
+  }
+
+  async function createCategoryOption({ category_id, label, emoji, created_by }) {
+    const sb = ensureClient();
+    const { data, error } = await sb
+      .from('category_options')
+      .insert({ category_id, label, emoji, created_by })
+      .select('id, category_id, label, emoji, created_by, created_at')
+      .single();
+    if (error) throw new Error(formatError(error));
+    return data;
+  }
+
+  async function deleteCategoryOption(id, profileId) {
+    const sb = ensureClient();
+    const { error } = await sb
+      .from('category_options')
+      .delete()
+      .eq('id', id)
+      .eq('created_by', profileId);
+    if (error) throw new Error(formatError(error));
+  }
+
   /* ---------- Таблиця day_marks ---------- */
 
   async function getAllDayMarks() {
@@ -226,11 +308,29 @@
     return data || [];
   }
 
-  async function createLog({ profile_id, category, date, time, type, note, photo_url }) {
+  async function createLog({
+    profile_id,
+    category,
+    date,
+    time,
+    type,
+    note,
+    photo_url,
+    options = [],
+  }) {
     const sb = ensureClient();
     const { data, error } = await sb
       .from('logs')
-      .insert({ profile_id, category, date, time, type, note, photo_url })
+      .insert({
+        profile_id,
+        category,
+        date,
+        time,
+        type,
+        note,
+        photo_url,
+        options: Array.isArray(options) ? options : [],
+      })
       .select('*')
       .single();
     if (error) throw new Error(formatError(error));
@@ -260,18 +360,29 @@
     if (error) throw new Error(formatError(error));
   }
 
-  async function deleteLogsByCategory(category) {
+  async function deleteLogsByCategory(categoryValues) {
     const sb = ensureClient();
+    const list = Array.isArray(categoryValues)
+      ? categoryValues.filter(Boolean).map(String)
+      : [String(categoryValues)].filter(Boolean);
+    if (!list.length) return;
     const { error } = await sb
       .from('logs')
       .delete()
-      .eq('category', category);
+      .in('category', list);
     if (error) throw new Error(formatError(error));
   }
 
   /* ---------- Realtime підписка ---------- */
 
-  function subscribeRealtime({ onLogsChange, onDayMarksChange, onProfilesChange, onStatus } = {}) {
+  function subscribeRealtime({
+    onLogsChange,
+    onDayMarksChange,
+    onProfilesChange,
+    onCategoriesChange,
+    onCategoryOptionsChange,
+    onStatus,
+  } = {}) {
     if (!isConfigured() || !window.supabase?.createClient) return null;
     const sb = ensureClient();
 
@@ -297,6 +408,16 @@
         { event: '*', schema: 'public', table: 'profiles' },
         (payload) => onProfilesChange && onProfilesChange(payload)
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'categories' },
+        (payload) => onCategoriesChange && onCategoriesChange(payload)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'category_options' },
+        (payload) => onCategoryOptionsChange && onCategoryOptionsChange(payload)
+      )
       .subscribe((status) => {
         if (onStatus) onStatus(status);
       });
@@ -315,6 +436,13 @@
     getProfileByName,
     createProfile,
     updateProfile,
+    listCategories,
+    createCategory,
+    updateCategory,
+    deleteCategory,
+    listCategoryOptions,
+    createCategoryOption,
+    deleteCategoryOption,
     getAllDayMarks,
     getDayMarks,
     upsertDayMark,

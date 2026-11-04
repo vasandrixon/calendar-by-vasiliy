@@ -2276,3 +2276,188 @@ textarea.input {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- Варіанти (теги) відділів ---------- */
+
+.field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.btn-link {
+  padding: 2px 6px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-3);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.2s var(--ease), background 0.2s var(--ease);
+}
+
+.btn-link:hover,
+.btn-link.is-active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.option-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.option-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #151518;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.2s var(--ease), background 0.2s var(--ease), color 0.2s var(--ease),
+    transform 0.15s var(--ease);
+}
+
+.option-chip:hover {
+  border-color: var(--line-2);
+  background: var(--card-2);
+}
+
+.option-chip:active {
+  transform: scale(0.98);
+}
+
+.option-chip.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.option-chip--add {
+  border-style: dashed;
+  border-color: var(--line-2);
+  color: var(--text-2);
+}
+
+.option-chip--add:hover {
+  border-color: var(--accent-line);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.option-chip-emoji {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.option-chip-del {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: 2px;
+  margin-right: -4px;
+  border-radius: 50%;
+  background: rgba(224, 138, 132, 0.18);
+  color: var(--danger);
+  font-size: 0.95rem;
+  line-height: 1;
+  transition: background 0.15s var(--ease), transform 0.15s var(--ease);
+}
+
+.option-chips.is-editing .option-chip[data-own="true"] .option-chip-del {
+  display: inline-flex;
+}
+
+.option-chip-del:hover {
+  background: rgba(224, 138, 132, 0.32);
+  transform: scale(1.1);
+}
+
+.option-custom-form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px;
+  margin-top: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #151518;
+  animation: fade-in 0.2s var(--ease);
+}
+
+.option-emoji-input {
+  width: 52px;
+  height: 38px;
+  padding: 0;
+  text-align: center;
+  font-size: 1.15rem;
+}
+
+.option-label-input {
+  flex: 1;
+  min-width: 140px;
+  height: 38px;
+  font-size: 0.9rem;
+}
+
+/* Чіпи варіантів у картках записів та стрічці */
+.log-options-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.log-option-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #151518;
+  color: var(--text-2);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+/* Популярний варіант у картках відділів Рейтингу */
+.title-card-stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  font-size: 0.8rem;
+}
+
+.title-card-stat-label {
+  color: var(--text-3);
+}
+
+.title-card-stat-tag {
+  color: var(--accent);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.title-card-stat-empty {
+  color: var(--text-3);
+}
