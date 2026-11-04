@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0b">
+  <meta name="color-scheme" content="dark">
+  <title>Daily</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23151518'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23a99cf5'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <h1 class="app-title">Daily</h1>
+      </div>
+
+      <div class="user-menu" id="user-menu" hidden>
+        <button type="button" class="user-menu-toggle" id="user-menu-toggle" aria-haspopup="menu" aria-expanded="false">
+          <span class="avatar avatar--sm" id="user-avatar"></span>
+          <span class="user-name" id="user-name"></span>
+          <svg class="user-menu-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="user-menu-dropdown" id="user-menu-dropdown" role="menu" hidden>
+          <button type="button" role="menuitem" data-action="switch">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Змінити профіль
+          </button>
+          <button type="button" role="menuitem" data-action="logout">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+            Вийти
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <div class="network-banner" id="network-banner" role="alert" hidden>
+      <span class="network-banner-text" id="network-banner-text"></span>
+      <button type="button" class="btn btn-secondary btn-sm" id="network-banner-close">Закрити</button>
+    </div>
+
+    <!-- Перемикач відділів -->
+    <nav class="section-tabs" id="section-tabs" aria-label="Відділи" hidden>
+      <button type="button" class="section-tab is-active" data-tab="calendar">Календар</button>
+      <button type="button" class="section-tab" data-tab="food">
+        <span class="tab-emoji" aria-hidden="true">🍽</span>
+        <span>Їжа</span>
+      </button>
+      <button type="button" class="section-tab" data-tab="toilet">
+        <span class="tab-emoji" aria-hidden="true">💩</span>
+        <span>Туалет</span>
+      </button>
+      <button type="button" class="section-tab" data-tab="feed">Стрічка</button>
+    </nav>
+
+    <main class="app-main">
+      <!-- Екран входу -->
+      <section class="auth" id="auth-view" hidden>
+        <div class="auth-card">
+          <div class="auth-head">
+            <h2 class="auth-title">Ласкаво просимо</h2>
+            <p class="auth-text">Оберіть профіль або створіть новий</p>
+          </div>
+
+          <div class="auth-profiles" id="auth-profiles" hidden>
+            <ul class="profile-list" id="profile-list"></ul>
+            <div class="divider"><span>або новий профіль</span></div>
+          </div>
+
+          <form class="login-form" id="login-form" novalidate>
+            <label class="avatar-picker">
+              <input type="file" accept="image/*" id="avatar-input" hidden>
+              <span class="avatar avatar--xl avatar--empty" id="avatar-preview"></span>
+              <span class="avatar-picker-hint" id="avatar-hint">Завантажити аватарку</span>
+            </label>
+
+            <input type="text" class="input input--center" id="name-input" placeholder="Ваше імʼя" maxlength="40" autocomplete="off">
+            <p class="form-error" id="login-error" hidden></p>
+
+            <button type="submit" class="btn btn-primary btn-block" id="login-submit">Увійти</button>
+            <button type="button" class="btn btn-ghost btn-block" id="auth-cancel" hidden>Скасувати</button>
+          </form>
+        </div>
+      </section>
+
+      <!-- Календар -->
+      <section class="calendar" id="calendar-view" hidden>
+        <div class="cal-stats">
+          <div class="stat">
+            <span class="stat-caption">Цей місяць</span>
+            <span class="stat-value" id="stat-month">0</span>
+            <span class="stat-label" id="stat-month-label"></span>
+          </div>
+          <div class="stat">
+            <span class="stat-caption">Серія</span>
+            <span class="stat-value" id="stat-streak">0</span>
+            <span class="stat-label" id="stat-streak-label"></span>
+          </div>
+        </div>
+
+        <div class="cal-card">
+          <div class="cal-toolbar">
+            <h2 class="cal-title" id="cal-title"></h2>
+            <div class="cal-nav">
+              <button type="button" class="btn btn-secondary btn-sm" id="cal-today">Сьогодні</button>
+              <button type="button" class="icon-btn" id="cal-prev" aria-label="Попередній місяць">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+              </button>
+              <button type="button" class="icon-btn" id="cal-next" aria-label="Наступний місяць">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="cal-weekdays" aria-hidden="true">
+            <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Нд</span>
+          </div>
+          <div class="cal-viewport">
+            <div class="cal-grid" id="cal-grid"></div>
+          </div>
+
+          <div class="cal-legend" id="cal-legend" aria-label="Позначки відділів">
+            <span class="legend-item"><span class="day-dot day-dot--food"></span> Їжа</span>
+            <span class="legend-item"><span class="day-dot day-dot--toilet"></span> Туалет</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Відділи: Їжа / Туалет / Користувацькі -->
+      <section class="tracker" id="tracker-view" hidden>
+        <div class="tracker-card">
+          <div class="tracker-header">
+            <div class="tracker-title-wrap">
+              <span class="tracker-icon" id="tracker-icon" aria-hidden="true">🍽</span>
+              <div>
+                <div class="tracker-title-row">
+                  <h2 class="tracker-title" id="tracker-title">Їжа</h2>
+                  <button type="button" class="icon-btn" id="cat-edit-btn" title="Перейменувати / змінити відділ" aria-label="Перейменувати відділ">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                  </button>
+                  <button type="button" class="icon-btn icon-btn--danger" id="cat-delete-btn" title="Видалити відділ" aria-label="Видалити відділ">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+                  </button>
+                </div>
+                <p class="tracker-subtitle" id="tracker-date-label"></p>
+              </div>
+            </div>
+
+            <div class="tracker-date-nav">
+              <button type="button" class="btn btn-secondary btn-sm" id="tracker-today">Сьогодні</button>
+              <button type="button" class="icon-btn" id="tracker-prev" aria-label="Попередній день">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+              </button>
+              <input type="date" class="input tracker-date-input" id="tracker-date" aria-label="Обрати дату">
+              <button type="button" class="icon-btn" id="tracker-next" aria-label="Наступний день">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <button type="button" class="btn btn-primary btn-add-log" id="log-add-btn">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            <span>+ Додати запис</span>
+          </button>
+
+          <div class="log-list" id="log-list"></div>
+          <div class="log-empty" id="log-empty" hidden>
+            <p class="log-empty-text" id="log-empty-text">За цей день записів ще немає</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Стрічка -->
+      <section class="feed" id="feed-view" hidden>
+        <div class="tracker-card">
+          <div class="feed-header">
+            <div>
+              <h2 class="tracker-title">Стрічка</h2>
+              <p class="tracker-subtitle" id="feed-date-label"></p>
+            </div>
+
+            <div class="tracker-date-nav">
+              <button type="button" class="btn btn-secondary btn-sm" id="feed-today">Сьогодні</button>
+              <button type="button" class="icon-btn" id="feed-prev" aria-label="Попередній день">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+              </button>
+              <input type="date" class="input tracker-date-input" id="feed-date" aria-label="Обрати дату">
+              <button type="button" class="icon-btn" id="feed-next" aria-label="Наступний день">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="feed-controls">
+            <div class="feed-filter-group">
+              <span class="feed-filter-label">Відділ</span>
+              <div class="feed-filters" id="feed-cat-filters">
+                <button type="button" class="btn btn-secondary btn-sm is-active" data-filter="all">Усі</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-filter="food">🍽 Їжа</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-filter="toilet">💩 Туалет</button>
+              </div>
+            </div>
+
+            <div class="feed-filter-group">
+              <span class="feed-filter-label">Профіль</span>
+              <div class="feed-filters" id="feed-profile-filters"></div>
+            </div>
+          </div>
+
+          <div class="log-list" id="feed-list"></div>
+          <div class="log-empty" id="feed-empty" hidden>
+            <p class="log-empty-text">За цей день записів не знайдено</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Рейтинг -->
+      <section class="leaderboard" id="leaderboard-view" hidden>
+        <div class="tracker-card">
+          <div class="leaderboard-header">
+            <div>
+              <h2 class="tracker-title">Рейтинг</h2>
+              <p class="tracker-subtitle">+10 за день · +2 за запис (до 10/день) · +5 за день серії 🔥</p>
+            </div>
+
+            <div class="leaderboard-periods" id="leaderboard-periods" role="group" aria-label="Період рейтингу">
+              <button type="button" class="btn btn-secondary btn-sm" data-period="week">Тиждень</button>
+              <button type="button" class="btn btn-secondary btn-sm" data-period="month">Місяць</button>
+              <button type="button" class="btn btn-secondary btn-sm is-active" data-period="all">Весь час</button>
+            </div>
+          </div>
+
+          <div class="leaderboard-titles" id="leaderboard-titles"></div>
+
+          <div class="leaderboard-podium" id="leaderboard-podium"></div>
+
+          <div class="leaderboard-list" id="leaderboard-list"></div>
+
+          <div class="log-empty" id="leaderboard-empty" hidden>
+            <p class="log-empty-text">Профілів ще немає</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <span id="status">Завантаження…</span>
+    </footer>
+  </div>
+
+  <!-- Панель дня календаря -->
+  <dialog class="entry-dialog" id="entry-dialog" aria-labelledby="entry-title">
+    <form class="entry-form" id="entry-form" novalidate>
+      <header class="entry-header">
+        <h2 class="entry-title" id="entry-title"></h2>
+        <button type="button" class="icon-btn" data-close aria-label="Закрити">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </header>
+
+      <div class="entry-body">
+        <label class="done-toggle">
+          <input type="checkbox" id="entry-done">
+          <span class="done-toggle-box" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          </span>
+          <span class="done-toggle-text">Виконано</span>
+        </label>
+
+        <div class="field">
+          <span class="field-label">Настрій</span>
+          <div class="mood-list" id="entry-moods"></div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="entry-note">Нотатка</label>
+          <textarea class="input" id="entry-note" rows="3" maxlength="1000" placeholder="Як минув день? (необовʼязково)"></textarea>
+        </div>
+
+        <div class="field">
+          <span class="field-label">Фото</span>
+          <div class="photo-box">
+            <img class="photo-preview" id="photo-preview" alt="Фото дня" hidden>
+            <video class="camera-video" id="camera-video" playsinline muted hidden></video>
+            <span class="photo-empty" id="photo-empty">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>
+              Фото ще немає
+            </span>
+            <div class="photo-busy" id="photo-busy" hidden><span class="spinner"></span></div>
+          </div>
+
+          <div class="photo-actions" id="photo-actions">
+            <input type="file" accept="image/*" id="photo-input" hidden>
+            <button type="button" class="btn btn-secondary btn-sm" id="photo-file">З файлу</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="camera-start">Камера</button>
+            <button type="button" class="btn btn-ghost btn-sm btn-danger" id="photo-remove" hidden>Видалити фото</button>
+          </div>
+
+          <div class="photo-actions" id="camera-actions" hidden>
+            <button type="button" class="btn btn-primary btn-sm" id="camera-capture">Зробити фото</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="camera-cancel">Скасувати</button>
+          </div>
+        </div>
+
+        <p class="form-error" id="entry-error" hidden></p>
+      </div>
+
+      <footer class="entry-footer">
+        <button type="button" class="btn btn-ghost btn-danger" id="entry-delete" hidden>Видалити</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-ghost" data-close>Скасувати</button>
+        <button type="submit" class="btn btn-primary" id="entry-save">Зберегти</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Модальне вікно запису відділу (Їжа / Туалет) -->
+  <dialog class="entry-dialog" id="log-dialog" aria-labelledby="log-dialog-title">
+    <form class="entry-form" id="log-form" novalidate>
+      <header class="entry-header">
+        <h2 class="entry-title" id="log-dialog-title">Новий запис</h2>
+        <button type="button" class="icon-btn" data-log-close aria-label="Закрити">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </header>
+
+      <div class="entry-body">
+        <div class="field-row">
+          <div class="field">
+            <label class="field-label" for="log-date">Дата</label>
+            <input type="date" class="input" id="log-date">
+          </div>
+          <div class="field">
+            <label class="field-label" for="log-time">Час</label>
+            <input type="time" class="input" id="log-time">
+          </div>
+        </div>
+
+        <div class="field" id="log-type-field">
+          <span class="field-label" id="log-type-label">Тип</span>
+          <div class="type-chips" id="log-types"></div>
+        </div>
+
+        <div class="field" id="log-food-field">
+          <label class="field-label" for="log-what">Що їв</label>
+          <input type="text" class="input" id="log-what" maxlength="200" placeholder="Напр.: вівсянка з ягодами, кава">
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="log-note">Нотатка</label>
+          <textarea class="input" id="log-note" rows="2" maxlength="1000" placeholder="Необовʼязково"></textarea>
+        </div>
+
+        <div class="field">
+          <span class="field-label">Фото</span>
+          <div class="photo-box">
+            <img class="photo-preview" id="log-photo-preview" alt="Фото запису" hidden>
+            <video class="camera-video" id="log-camera-video" playsinline muted hidden></video>
+            <span class="photo-empty" id="log-photo-empty">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>
+              Фото ще немає
+            </span>
+            <div class="photo-busy" id="log-photo-busy" hidden><span class="spinner"></span></div>
+          </div>
+
+          <div class="photo-actions" id="log-photo-actions">
+            <input type="file" accept="image/*" id="log-photo-input" hidden>
+            <button type="button" class="btn btn-secondary btn-sm" id="log-photo-file">З файлу</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="log-camera-start">Камера</button>
+            <button type="button" class="btn btn-ghost btn-sm btn-danger" id="log-photo-remove" hidden>Видалити фото</button>
+          </div>
+
+          <div class="photo-actions" id="log-camera-actions" hidden>
+            <button type="button" class="btn btn-primary btn-sm" id="log-camera-capture">Зробити фото</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="log-camera-cancel">Скасувати</button>
+          </div>
+        </div>
+
+        <p class="form-error" id="log-error" hidden></p>
+      </div>
+
+      <footer class="entry-footer">
+        <button type="button" class="btn btn-ghost btn-danger" id="log-delete" hidden>Видалити</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-ghost" data-log-close>Скасувати</button>
+        <button type="submit" class="btn btn-primary" id="log-save">Зберегти</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Модальне вікно створення / редагування відділу -->
+  <dialog class="entry-dialog" id="category-dialog" aria-labelledby="cat-dialog-title">
+    <form class="entry-form" id="category-form" novalidate>
+      <header class="entry-header">
+        <h2 class="entry-title" id="cat-dialog-title">Новий відділ</h2>
+        <button type="button" class="icon-btn" data-cat-close aria-label="Закрити">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </header>
+
+      <div class="entry-body">
+        <div class="field">
+          <label class="field-label" for="cat-title-input">Назва відділу</label>
+          <input type="text" class="input" id="cat-title-input" maxlength="32" placeholder="Напр.: Спорт, Вода, Сон" autocomplete="off">
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="cat-icon-input">Емодзі</label>
+          <div class="cat-emoji-row">
+            <input type="text" class="input cat-emoji-input" id="cat-icon-input" maxlength="4" value="✨" aria-label="Емодзі відділу">
+            <div class="cat-emoji-presets" id="cat-emoji-presets"></div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="cat-color-input">Колір точки</label>
+          <div class="cat-color-row">
+            <div class="cat-color-presets" id="cat-color-presets"></div>
+            <input type="color" class="cat-color-picker" id="cat-color-input" value="#7aa2f7" aria-label="Власний колір точки">
+          </div>
+        </div>
+
+        <p class="form-error" id="cat-error" hidden></p>
+      </div>
+
+      <footer class="entry-footer">
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-ghost" data-cat-close>Скасувати</button>
+        <button type="submit" class="btn btn-primary" id="cat-save-btn">Зберегти</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Підключення Supabase через CDN та локальних скриптів із відносними шляхами -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/config.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/image.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/calendar.js"></script>
+  <script src="js/logs.js"></script>
+  <script src="js/leaderboard.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
